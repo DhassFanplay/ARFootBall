@@ -1,56 +1,68 @@
 <!DOCTYPE html>
-<html lang="en-us">
-<head>
-    <meta charset="utf-8" />
-    <title>Unity WebGL Player | WebGLFootBall</title>
-    <link rel="shortcut icon" href="TemplateData/favicon.ico" />
-    <link rel="stylesheet" href="TemplateData/style.css" />
-    <style>
-        video, canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 5;
-        }
+<html lang = "en-us">
 
-        #unity-container {
-            position: relative;
-            z-index: 0;
-        }
-    </style>
-</head>
+<head>
+    <meta charset = "utf-8"/>
+    <title> Unity WebGL Player | WebGLFootBalln</title>
+<link rel="shortcut icon" href="TemplateData/favicon.ico"/>
+<link rel="stylesheet" href="TemplateData/style.css"/>
+<style>
+    video, canvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 5;
+    }
+
+    #unity-container {
+        position: relative;
+        z-index: 0;
+    }
+</style>
+    </head>
 <body>
+
+    <!-- Load A-Frame -->
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js "></script>
     <div id="unity-container" class="unity-desktop">
-        <canvas id="unity-canvas" width="960" height="600" tabindex="-1"></canvas>
+        <canvas id="unity-canvas" width="960" height="600" tabindex="-1"> </canvas>
         <div id="unity-loading-bar">
-            <div id="unity-logo"></div>
+            <div id="unity-logo"> </div>
             <div id="unity-progress-bar-empty">
-                <div id="unity-progress-bar-full"></div>
+                <div id="unity-progress-bar-full"> </div>
             </div>
         </div>
-        <div id="unity-warning"></div>
+        <div id="unity-warning"> </div>
         <div id="unity-footer">
-            <div id="unity-webgl-logo"></div>
-            <div id="unity-fullscreen-button"></div>
-            <div id="unity-build-title">WebGLFootBall</div>
+            <div id="unity-webgl-logo"> </div>
+            <div id="unity-fullscreen-button"> </div>
+            <div id="unity-build-title"> WebGLFootBall </div>
         </div>
     </div>
+    <a-entity id="cameratransform"
+              camera
+              look-controls
+              wasd-controls
+              position="0 1.6 0"
+              active>
+    </a-entity>
 
 
-    <!-- TensorFlow.js Core -->
+    <!-- Load OpenCV.js -->
+    <script async src="https://docs.opencv.org/4.5.0/opencv.js "></script>
+
+    <!--TensorFlow.js Core-->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core@3.14.0/dist/tf-core.min.js"></script>
 
-    <!-- TensorFlow.js Converter -->
+    <!--TensorFlow.js Converter-->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-converter@3.14.0/dist/tf-converter.min.js"></script>
 
-    <!-- TensorFlow.js Backend WebGL -->
+    <!--TensorFlow.js Backend WebGL -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl@3.14.0/dist/tf-backend-webgl.min.js"></script>
-
     <!-- Pose Detection Model -->
     <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.1.3/dist/pose-detection.min.js"></script>
 
     <script type="module" src="OpenCVJS.js"></script>
-
     <!-- Unity Loader -->
     <script>
         const container = document.querySelector("#unity-container");
@@ -72,21 +84,17 @@
                     warningBanner.style.display = warningBanner.children.length ? "block" : "none";
                 }, 5000);
             }
+
             warningBanner.style.display = warningBanner.children.length ? "block" : "none";
         }
 
         const buildUrl = "Build";
         const loaderUrl = buildUrl + "/Check.loader.js";
         const config = {
-            dataUrl: buildUrl + "/Check.data",
-            frameworkUrl: buildUrl + "/Check.framework.js",
-            codeUrl: buildUrl + "/Check.wasm",
-            streamingAssetsUrl: "StreamingAssets",
-            companyName: "DefaultCompany",
-            productName: "WebGLFootBall",
-            productVersion: "0.1",
-            showBanner: unityShowBanner,
-        };
+            dataUrl: buildUrl + "/Check.data", frameworkUrl: buildUrl + "/Check.framework.js", codeUrl: buildUrl + "/Check.wasm", streamingAssetsUrl: "StreamingAssets", companyName: "DefaultCompany", productName: "WebGLFootBall", productVersion: "0.1", showBanner: unityShowBanner,
+        }
+
+            ;
 
         const meta = document.createElement("meta");
         meta.name = "viewport";
@@ -110,7 +118,9 @@
 
                 //  Load pose tracker
             }).catch((message) => alert(message));
-        };
+        }
+
+            ;
 
         document.body.appendChild(unityLoader);
     </script>
@@ -118,5 +128,6 @@
     <script src="aframe.min.js"></script>
     <script src="aframe-ar.js"></script>
     <script type="module" src="app.js"></script>
+    <script type="module" src="OpenCVJS.js"></script>
 </body>
-</html>
+    </html>
