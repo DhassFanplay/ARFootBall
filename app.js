@@ -1,44 +1,120 @@
-﻿// Global variables
-let isCameraReady = false;
-let gl = null;
-// Global variables
+﻿// =============
+// Global state
+// =============
+let cvReady = false;
+let tfReady = false;
+const frameQueue = [];
+
+// Floor detection variables
 let floorBottomY = null;
-let floorBaseZ = -1.5; // Fixed depth in front of camera
 let currentFloorPosition = null;
 
-const floorHeightThreshold = 0.7; // Only accept if floor detected
-const floorDepthOffset = 0.5;
+// =============
+// Load OpenCV.js
+// =============
+let cvInitialized = false;
 
-// Called by Unity to process base64 image
-window.ReceiveWebcamFrameFloor = function (base64) {
+function initOpenCv() {
+    if (cvInitialized) {
+        console.log("ℹ️ OpenCV already being initialized.");
+        return;
+    }
+    cvInitialized = true;
+
+    const script = document.createElement("script");
+    script.async = true;
+    script.src = "https://docs.opencv.org/4.5.0/opencv.js "; // Fixed URL
+
+    script.onload = () => {
+        if (typeof cv !== 'undefined' && cv.onRuntimeInitialized) {
+            cv.onRuntimeInitialized = () => {
+                console.log("✅ OpenCV is ready!");
+                cvReady = true;
+            };
+        } else {
+            console.error("❌ Failed to initialize OpenCV: cv is undefined or runtime didn't start.");
+
+            // Fallback: Try again after delay
+            setTimeout(() => {
+                console.log("🔁 Retrying OpenCV initialization...");
+                cvInitialized = false; // Allow retry
+                initOpenCv();
+            }, 2000);
+        }
+    };
+
+    script.onerror = (e) => {
+        console.error("❌ Failed to load OpenCV script:", e);
+        cvInitialized = false; // Allow retry
+    };
+
+    document.head.appendChild(script);
+}
+
+// =============
+// Initialize MoveNet Detector
+// =============
+const detectorPromise = (async () => {
+    console.log("[DEBUG] Initializing MoveNet detector...");
+    await tf.setBackend("webgl");
+    await tf.ready();
+    const detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
+        modelType: poseDetection.movenet.modelType.SINGLEPOSE_THUNDER
+    });
+    console.log("[DEBUG] Detector ready.");
+    tfReady = true;
+    return detector;
+})();
+
+// =============
+// Canvas for both detectors
+// =============
+const canvas = document.createElement("canvas");
+const ctx = canvas.getContext("2d");
+
+// =============
+// Queue frames until both CV & TF are ready
+// =============
+function queueFrame(base64) {
+    frameQueue.push(base64);
+    processQueuedFrames();
+}
+
+function processQueuedFrames() {
+    while (frameQueue.length > 0 && cvReady && tfReady) {
+        const base64 = frameQueue.shift();
+        processBothDetectors(base64);
+    }
+}
+
+// =============
+// Unified Frame Processor
+// =============
+async function processBothDetectors(base64) {
     const image = new Image();
+    image.crossOrigin = "anonymous";
     image.src = "data:image/jpeg;base64," + base64;
 
-    image.onload = () => {
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
-
+    image.onload = async () => {
         canvas.width = image.width;
         canvas.height = image.height;
         ctx.drawImage(image, 0, 0);
 
+        // =============
+        // Run OpenCV Floor Detection
+        // =============
         try {
             let src = cv.imread(canvas);
             let gray = new cv.Mat();
             let edges = new cv.Mat();
 
-            // Convert to grayscale
             cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-
-            // Canny edge detection
             cv.Canny(gray, edges, 50, 150);
 
-            // Morphological operations
             let kernel = cv.getStructuringElement(cv.MORPH_RECT, new cv.Size(5, 5));
             cv.dilate(edges, edges, kernel, new cv.Point(-1, -1), 5);
             cv.erode(edges, edges, kernel, new cv.Point(-1, -1), 3);
 
-            // HoughLinesP for floor lines
             let lines = new cv.Mat();
             cv.HoughLinesP(edges, lines, 1, Math.PI / 180, 20, 20, 10);
 
@@ -70,26 +146,27 @@ window.ReceiveWebcamFrameFloor = function (base64) {
             let bestRight = getBestLine(rightLines);
 
             if (bestLeft && bestRight) {
-                // Estimate floor Y
                 floorBottomY = (bestLeft.y2 + bestRight.y1) / 2;
 
-                // Normalize floor height
                 let normalizedY = (floorBottomY / canvas.height) * 2 - 1;
                 let yUnity = -normalizedY * 0.5;
 
-                // Get camera forward direction
                 const cameraEl = document.getElementById('camera');
                 if (!cameraEl) return;
 
                 const camDir = new THREE.Vector3(0, 0, -1);
                 camDir.applyQuaternion(cameraEl.object3D.quaternion);
 
-                // Final position
                 currentFloorPosition = {
                     x: camDir.x * 2,
                     y: yUnity,
                     z: camDir.z * 2
                 };
+                console.error("Detecting Floor:", JSON.stringify(currentFloorPosition));
+                // Send floor position to Unity
+                if (window.UnityInstance) {
+                    UnityInstance.SendMessage("FloorDetector", "OnReceiveFloorPosition", JSON.stringify(currentFloorPosition));
+                }
             }
 
             // Cleanup
@@ -100,36 +177,39 @@ window.ReceiveWebcamFrameFloor = function (base64) {
         } catch (err) {
             console.error("OpenCV Error:", err);
         }
+
+        // =============
+        // Run MoveNet Foot Detection
+        // =============
+        try {
+            const detector = await detectorPromise;
+            const poses = await detector.estimatePoses(canvas);
+            if (poses.length === 0) {
+                console.warn("[DEBUG] No poses detected.");
+                return;
+            }
+
+            const keypoints = poses[0].keypoints;
+            const leftAnkle = keypoints[15];  // left ankle index
+            const rightAnkle = keypoints[16]; // right ankle index
+
+            const foot = (leftAnkle?.score ?? 0) > (rightAnkle?.score ?? 0) ? leftAnkle : rightAnkle;
+
+            if (foot && foot.score > 0.3) {
+                const normalized = {
+                    x: foot.x / canvas.width,
+                    y: foot.y / canvas.height
+                };
+
+                console.error("Detecting foot:", JSON.stringify(normalized));
+                if (window.UnityInstance) {
+                    window.unityInstance.SendMessage("FootCube", "OnReceiveFootPosition", JSON.stringify(normalized));
+                }
+            }
+        } catch (err) {
+            console.error("MoveNet Error:", err);
+        }
     };
-};
-
-// Function called by Unity button click
-window.placeObject = function () {
-    const cube = document.getElementById('placedCube');
-
-    if (!currentFloorPosition) {
-        alert("No floor detected yet.");
-        return;
-    }
-
-    cube.setAttribute('position', {
-        x: currentFloorPosition.x,
-        y: currentFloorPosition.y,
-        z: currentFloorPosition.z
-    });
-
-    cube.setAttribute('visible', true); // Optional: show for debug
-
-    // Send to Unity
-    sendPositionToUnity(currentFloorPosition);
-};
-
-// Send cube position to Unity continuously or on demand
-function sendPositionToUnity(position) {
-    if (!window.UnityInstance) return;
-
-    const posString = `${position.x},${position.y},${position.z}`;
-    UnityInstance.SendMessage("FloorDetector", "OnReceiveFloorPosition", posString);
 }
 
 // Utility: Get longest line
@@ -141,9 +221,23 @@ function getBestLine(lines) {
         return lenA > lenB ? a : b;
     });
 }
-// Called from Unity when camera is ready
+
+// =============
+// Expose to Unity
+// =============
+window.ReceiveWebcamFrame = window.ReceiveWebcamFrameFloor = function (base64) {
+    processBothDetectors(base64);
+};
+
+// =============
+// Kickstart everything
+// =============
+initOpenCv();
+
+// =============
+// Start A-Frame Scene
+// =============
 window.cameraReady = function () {
-    isCameraReady = true;
     startAFrameScene();
 };
 
@@ -195,23 +289,18 @@ AFRAME.registerComponent('cameratransform', {
         const projStr = [...camera.projectionMatrix.elements].join(",");
 
         // Send to Unity
-        if (window.UnityInstance && window.isCameraReady) {
-            UnityInstance.SendMessage("Main Camera", "SetPosition", posStr);
-            UnityInstance.SendMessage("Main Camera", "SetRotation", rotStr);
-            UnityInstance.SendMessage("Main Camera", "SetProjection", projStr);
+        if (window.UnityInstance) {
+            UnityInstance.SendMessage("MainCamera", "SetPosition", posStr);
+            UnityInstance.SendMessage("MainCamera", "SetRotation", rotStr);
+            UnityInstance.SendMessage("MainCamera", "SetProjection", projStr);
 
             // Optional: Send canvas size
-            const canvas = document.getElementsByTagName('canvas')[0];
-            if (canvas) {
-                const w = canvas.width;
-                const h = canvas.height;
+            const canvases = document.getElementsByTagName('canvas');
+            if (canvases.length > 0) {
+                const w = canvases[0].width;
+                const h = canvases[0].height;
                 UnityInstance.SendMessage("Canvas", "SetSize", `${w},${h}`);
             }
-        }
-
-        // Prevent WebGL clear between Unity and A-Frame
-        if (gl != null) {
-            gl.dontClearOnFrameStart = true;
         }
     }
 });
