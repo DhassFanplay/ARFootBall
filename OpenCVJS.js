@@ -3,7 +3,8 @@
     await tf.setBackend("webgl");
     await tf.ready();
     const detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, {
-        modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING
+        modelType: poseDetection.movenet.modelType.SINGLEPOSE_THUNDER,
+            enableSmoothing: true,
     });
     console.log("[DEBUG] Detector ready.");
     return detector;
